@@ -170,6 +170,13 @@ v5.0 moves conventions from "things to remember" into the tool layer, where they
    GHIDRA_INSTALL_DIR=/path/to/ghidra gradle buildExtension
    ```
 
+### Updating an Existing Installation
+
+Pulling source does not replace the extension already loaded by Ghidra. Follow
+the [Updating Ghidra MCP](docs/UPDATING.md) guide to preflight, test, build,
+preview deployment, install the user-profile extension, restart Ghidra and the
+MCP client, and verify the live schema.
+
 ### Installation (Linux — Ubuntu/Debian)
 
 1. **Clone the repository:**

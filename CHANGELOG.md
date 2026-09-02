@@ -73,6 +73,12 @@ Complete version history for the Ghidra MCP Server project.
 
 ### Added
 
+- **Existing-install update runbook.** Added `docs/UPDATING.md` with the
+  supported source/preflight/test/build/deploy workflow, shared-project safety
+  boundary, Java-extension versus Python-bridge distinction, MCP-client restart
+  guidance, live schema/artifact verification, and rollback troubleshooting.
+  The root README and documentation index now link to it.
+
 - **`reset_function_prototype` guarded signature reset (1 new endpoint).** Returns
   a forced stored signature to Ghidra's default/inferred state without requiring
   a guessed replacement prototype. A compare-and-set `expected_signature_source`
