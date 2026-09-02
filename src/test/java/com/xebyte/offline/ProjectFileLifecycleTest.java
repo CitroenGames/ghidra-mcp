@@ -39,6 +39,9 @@ public class ProjectFileLifecycleTest extends TestCase {
         assertEquals("analyst", status.get("checkout_user"));
         assertEquals(42L, status.get("checkout_id"));
         assertEquals(7, status.get("checkout_version"));
+        assertEquals(1, status.get("version_delta"));
+        assertEquals(1, status.get("checkout_version_delta"));
+        assertEquals(false, status.get("checkout_is_latest"));
         assertEquals("merge_latest", status.get("next_action"));
 
         Map<?, ?> blockers = (Map<?, ?>) status.get("blockers");
@@ -167,6 +170,27 @@ public class ProjectFileLifecycleTest extends TestCase {
         Map<?, ?> blockers = (Map<?, ?>) status.get("blockers");
         assertTrue(((List<?>) blockers.get("checkout")).contains("not_versioned"));
         assertEquals(true, status.get("can_add_to_repository"));
+    }
+
+    public void testStatusReportsCheckoutOwnedByAnotherComputer() throws Exception {
+        DomainFile file = baseFile();
+        ItemCheckoutStatus checkout = mock(ItemCheckoutStatus.class);
+        when(file.isCheckedOut()).thenReturn(false);
+        when(file.getCheckouts()).thenReturn(new ItemCheckoutStatus[] { checkout });
+        when(checkout.getCheckoutId()).thenReturn(77L);
+        when(checkout.getUser()).thenReturn("other-analyst");
+        when(checkout.getCheckoutVersion()).thenReturn(8);
+        when(checkout.getUserHostName()).thenReturn("WORKSTATION-2");
+
+        Map<String, Object> status = ProjectFileLifecycle.inspect(file);
+
+        assertEquals(1, status.get("active_checkout_count"));
+        assertEquals(true, status.get("checked_out_elsewhere"));
+        List<?> active = (List<?>) status.get("active_checkouts");
+        Map<?, ?> row = (Map<?, ?>) active.get(0);
+        assertEquals(77L, row.get("checkout_id"));
+        assertEquals("other-analyst", row.get("user"));
+        assertEquals("WORKSTATION-2", row.get("user_host"));
     }
 
     public void testHeadlessProviderReadsLifecycleFromOpenProjectDomainFile() throws Exception {

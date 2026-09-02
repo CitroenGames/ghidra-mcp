@@ -1,7 +1,7 @@
 {
   "version": "6.0.0",
   "description": "GhidraMCP REST API Endpoint Specification",
-  "total_endpoints": 275,
+  "total_endpoints": 276,
   "categories": {
     "listing": "List program data",
     "getter": "Get specific data",
@@ -437,15 +437,32 @@
       "description": "Health check endpoint"
     },
     {
+      "path": "/checkout_program",
+      "method": "POST",
+      "category": "project",
+      "params": [
+        "path",
+        "exclusive",
+        "expected_latest_version",
+        "dry_run"
+      ],
+      "description": "Guarded checkout for a DomainFile in the open project with latest-version preconditions and verified post-state"
+    },
+    {
       "path": "/checkin_program",
       "method": "POST",
-      "category": "headless",
+      "category": "project",
       "params": [
         "path",
         "comment",
-        "keep_checked_out"
+        "keep_checked_out",
+        "allow_no_changes",
+        "expected_version",
+        "expected_latest_version",
+        "expected_checkout_id",
+        "dry_run"
       ],
-      "description": "Check an open program back in to the shared Ghidra Server as a new version"
+      "description": "Save and check in a program through its open-project DomainFile with latest-version and checkout compare-and-set guards plus verified post-state"
     },
     {
       "path": "/clear_flow_and_repair",
@@ -2087,7 +2104,7 @@
       "params": [
         "path"
       ],
-      "description": "Read-only lifecycle preflight for a DomainFile in the open project: versions, latest state, checkout owner, dirty/busy flags, can_checkout/can_checkin/can_merge, blockers, and next safe action. Available in GUI and headless project modes."
+      "description": "Read-only lifecycle preflight for a DomainFile in the open project: versions and deltas, this checkout plus all active server checkouts, dirty/busy flags, can_checkout/can_checkin/can_merge, blockers, and next safe action. Available in GUI and headless project modes."
     },
     {
       "path": "/prompt_policy",

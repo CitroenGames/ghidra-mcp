@@ -17,6 +17,7 @@ package com.xebyte.headless;
 
 import com.xebyte.core.ProgramProvider;
 import com.xebyte.core.ProjectFileLifecycle;
+import com.xebyte.core.ProjectFileVersionControl;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
 import ghidra.app.plugin.core.archive.HeadlessArchiveBridge;
 import ghidra.app.util.importer.AutoImporter;
@@ -705,17 +706,22 @@ public class HeadlessProgramProvider implements ProgramProvider {
      * @param keepCheckedOut  keep the file checked out after the new version lands
      * @return result map with status/version_before/version/version_bumped, or error
      */
-    public Map<String, Object> checkinProgram(String path, String comment, boolean keepCheckedOut) {
+    public Map<String, Object> checkinProgram(String path, String comment,
+            boolean keepCheckedOut) {
+        return checkinProgram(path, comment, keepCheckedOut, false,
+            -1, -1, -1L, false);
+    }
+
+    /** Guarded counterpart to the GUI /checkin_program endpoint. */
+    public Map<String, Object> checkinProgram(String path, String comment,
+            boolean keepCheckedOut, boolean allowNoChanges, int expectedVersion,
+            int expectedLatestVersion, long expectedCheckoutId, boolean dryRun) {
         Map<String, Object> out = new LinkedHashMap<>();
         if (project == null) {
             out.put("success", false);
             out.put("error", "No project open. Call /open_project first.");
             return out;
         }
-        if (comment == null) {
-            comment = "";
-        }
-
         ProjectData projectData;
         try {
             projectData = project.getProjectData();
@@ -754,61 +760,69 @@ public class HeadlessProgramProvider implements ProgramProvider {
             prog = (candidate != null && file.equals(candidate.getDomainFile())) ? candidate : null;
         }
 
-        if (!file.isVersioned()) {
-            out.put("success", false);
-            out.put("error", "File is not under version control: " + path
-                + " (add it first, or check out a versioned file)");
-            return out;
-        }
-        if (!file.isCheckedOut()) {
-            out.put("success", false);
-            out.put("error", "File is not checked out: " + path);
-            return out;
-        }
-
-        try {
-            // Save pending edits into the local project DB, then release the
-            // open object so the checkout can be dropped on checkin.
-            if (prog != null) {
-                try {
-                    if (prog.isChanged()) {
-                        prog.save(comment.isEmpty() ? "checkin" : comment, monitor);
-                    }
-                } catch (Exception e) {
-                    out.put("success", false);
-                    out.put("error", "Save before checkin failed: " + e.getMessage());
-                    return out;
+        if (!keepCheckedOut && prog != null) {
+            Map<String, Object> preflight = ProjectFileVersionControl.checkin(
+                file, comment, true, allowNoChanges, expectedVersion,
+                expectedLatestVersion, expectedCheckoutId, true, monitor,
+                (target, saveComment, taskMonitor) -> {});
+            preflight.put("keep_checked_out", false);
+            preflight.put("would_close_program", true);
+            if (!Boolean.TRUE.equals(preflight.get("success")) || dryRun) {
+                return preflight;
+            }
+            try {
+                if (prog.isChanged()) {
+                    prog.save(comment == null || comment.trim().isEmpty()
+                        ? "checkin" : comment.trim(), monitor);
                 }
                 closeProgram(prog);
+            } catch (Exception e) {
+                out.put("success", false);
+                out.put("error", "Save/close before check-in failed: " + e.getMessage());
+                return out;
             }
+        }
 
-            int versionBefore = file.getVersion();
-            final String cmt = comment;
-            final boolean keep = keepCheckedOut;
-            file.checkin(new ghidra.framework.data.CheckinHandler() {
-                public boolean keepCheckedOut() { return keep; }
-                public String getComment() { return cmt; }
-                public boolean createKeepFile() { return false; }
-            }, monitor);
-            int versionAfter = file.getVersion();
+        Map<String, Object> result = ProjectFileVersionControl.checkin(
+            file, comment, keepCheckedOut, allowNoChanges, expectedVersion,
+            expectedLatestVersion, expectedCheckoutId, dryRun, monitor,
+            (target, saveComment, taskMonitor) -> target.save(taskMonitor));
+        result.put("path", path);
+        if (Boolean.TRUE.equals(result.get("success")) && !dryRun) {
+            Msg.info(this, "Checked in " + path + " at version " + file.getVersion());
+        }
+        return result;
+    }
 
-            out.put("success", true);
-            out.put("status", "checked_in");
-            out.put("path", path);
-            out.put("version_before", versionBefore);
-            out.put("version", versionAfter);
-            out.put("version_bumped", versionAfter > versionBefore);
-            out.put("checked_out", file.isCheckedOut());
-            out.put("comment", comment);
-            out.put("keep_checked_out", keepCheckedOut);
-            Msg.info(this, "Checked in " + path + " (v" + versionBefore + " -> v" + versionAfter + ")");
-            return out;
-        } catch (Exception e) {
-            Msg.error(this, "Checkin failed for " + path, e);
+    /** Guarded checkout for a file in the currently open shared project. */
+    public Map<String, Object> checkoutProgram(String path, boolean exclusive,
+            int expectedLatestVersion, boolean dryRun) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (project == null) {
             out.put("success", false);
-            out.put("error", "Checkin failed (" + e.getClass().getSimpleName() + "): " + e.getMessage());
+            out.put("error", "No project open. Call /open_project first.");
             return out;
         }
+
+        DomainFile file;
+        if (path == null || path.trim().isEmpty()) {
+            Program program = currentProgram;
+            if (program == null || program.getDomainFile() == null) {
+                out.put("success", false);
+                out.put("error", "No current program open; supply 'path'.");
+                return out;
+            }
+            file = program.getDomainFile();
+        } else {
+            file = project.getProjectData().getFile(path.trim());
+            if (file == null) {
+                out.put("success", false);
+                out.put("error", "File not found in project: " + path.trim());
+                return out;
+            }
+        }
+        return ProjectFileVersionControl.checkout(
+            file, exclusive, expectedLatestVersion, dryRun, monitor);
     }
 
     /**

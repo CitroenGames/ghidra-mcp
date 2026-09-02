@@ -44,7 +44,9 @@ Deploying the extension does not replace or migrate project databases.
    `tools.setup deploy` asks a matching Ghidra instance to save open programs
    and exit. If it cannot exit within the timeout, it may terminate that
    matching process. Its automatic save is **not** a shared-repository
-   check-in.
+   check-in. Use the guarded workflow in
+   [`SHARED_PROJECT_VERSION_CONTROL.md`](SHARED_PROJECT_VERSION_CONTROL.md) to
+   preflight and publish the file through MCP before deployment.
 
 3. Close unrelated Ghidra installations that might also bind the configured
    MCP port (normally `127.0.0.1:8089`). The deploy command warns about them but
@@ -251,4 +253,3 @@ Return the source checkout to a known-good commit in a clean worktree, rebuild,
 and deploy that version through the same workflow. Do not restore only the JAR
 while leaving a newer bridge/schema in place; roll back the Java and Python
 pieces together, then verify the live schema again.
-

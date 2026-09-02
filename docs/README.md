@@ -8,6 +8,8 @@ release notes for Ghidra MCP.
 - Start in the repo root `README.md` for installation, build, and day-to-day
   usage.
 - Read `UPDATING.md` before replacing an existing Ghidra MCP installation.
+- Read `SHARED_PROJECT_VERSION_CONTROL.md` to check out, save, and check in an
+  open shared-project file through guarded MCP tools.
 - Read `PROJECT_STRUCTURE.md` for the current layout of the codebase and where
   major subsystems live.
 - Read `TESTING.md` for local, CI, and live Ghidra release-regression testing.
@@ -34,6 +36,7 @@ release notes for Ghidra MCP.
 docs/
 ├── README.md
 ├── UPDATING.md
+├── SHARED_PROJECT_VERSION_CONTROL.md
 ├── PROJECT_STRUCTURE.md
 ├── NAMING_CONVENTIONS.md
 ├── HUNGARIAN_NOTATION.md

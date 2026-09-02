@@ -39,8 +39,11 @@ public final class ProjectFileLifecycle {
         out.put("name", file.getName());
         out.put("path", file.getPathname());
         out.put("content_type", file.getContentType());
-        out.put("version", file.getVersion());
-        out.put("latest_version", file.getLatestVersion());
+        int version = file.getVersion();
+        int latestVersion = file.getLatestVersion();
+        out.put("version", version);
+        out.put("latest_version", latestVersion);
+        out.put("version_delta", Math.max(0, latestVersion - version));
         out.put("is_latest_version", latest);
         out.put("is_versioned", versioned);
         out.put("is_checked_out", checkedOut);
@@ -62,12 +65,43 @@ public final class ProjectFileLifecycle {
             try {
                 ItemCheckoutStatus status = file.getCheckoutStatus();
                 if (status != null) {
+                    int checkoutVersion = status.getCheckoutVersion();
                     out.put("checkout_user", status.getUser());
                     out.put("checkout_id", status.getCheckoutId());
-                    out.put("checkout_version", status.getCheckoutVersion());
+                    out.put("checkout_version", checkoutVersion);
+                    out.put("checkout_version_delta",
+                        Math.max(0, latestVersion - checkoutVersion));
+                    out.put("checkout_is_latest",
+                        latest && checkoutVersion == latestVersion);
                 }
             } catch (IOException e) {
                 out.put("checkout_status_error", safeMessage(e));
+            }
+        }
+
+        if (versioned) {
+            try {
+                ItemCheckoutStatus[] statuses = file.getCheckouts();
+                List<Map<String, Object>> activeCheckouts = new ArrayList<>();
+                if (statuses != null) {
+                    for (ItemCheckoutStatus status : statuses) {
+                        if (status == null) continue;
+                        Map<String, Object> checkout = new LinkedHashMap<>();
+                        checkout.put("checkout_id", status.getCheckoutId());
+                        checkout.put("user", status.getUser());
+                        checkout.put("checkout_version", status.getCheckoutVersion());
+                        checkout.put("checkout_type", String.valueOf(status.getCheckoutType()));
+                        checkout.put("checkout_date", status.getCheckoutDate());
+                        checkout.put("project_path", status.getProjectPath());
+                        checkout.put("user_host", status.getUserHostName());
+                        activeCheckouts.add(checkout);
+                    }
+                }
+                out.put("active_checkout_count", activeCheckouts.size());
+                out.put("active_checkouts", activeCheckouts);
+                out.put("checked_out_elsewhere", !checkedOut && !activeCheckouts.isEmpty());
+            } catch (IOException e) {
+                out.put("active_checkouts_error", safeMessage(e));
             }
         }
 

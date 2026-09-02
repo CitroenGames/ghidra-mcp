@@ -212,19 +212,65 @@ public class HeadlessManagementService {
         return Response.ok(body);
     }
 
-    @McpTool(path = "/checkin_program", method = "POST", description = "Check a program back in to the shared Ghidra Server as a new version (the write-back path GhidraServerManager.checkinFile can't provide — see #119). Requires a shared (server-bound) project opened via /open_project and the file checked out. Saves pending edits and releases the open program first so keep_checked_out=false can actually drop the server checkout. Returns version_before/version/version_bumped.", category = "headless")
+    @McpTool(path = "/checkout_program", method = "POST",
+        description = "Guarded checkout for a DomainFile in the open shared project. Uses the current program when path is omitted, refuses a stale local version, supports an expected-latest-version compare-and-set guard and dry-run, and returns verified post-operation lifecycle state.",
+        category = "project")
+    public Response checkoutProgram(
+            @Param(value = "path", source = ParamSource.BODY, defaultValue = "",
+                description = "Project path; empty uses the current program") String path,
+            @Param(value = "exclusive", source = ParamSource.BODY, defaultValue = "true",
+                description = "Request an exclusive checkout") boolean exclusive,
+            @Param(value = "expected_latest_version", source = ParamSource.BODY,
+                defaultValue = "-1",
+                description = "Optional repository latest-version guard; -1 disables it")
+            int expectedLatestVersion,
+            @Param(value = "dry_run", source = ParamSource.BODY, defaultValue = "false",
+                description = "Validate without acquiring a checkout") boolean dryRun) {
+        return Response.ok(programProvider.checkoutProgram(
+            path, exclusive, expectedLatestVersion, dryRun));
+    }
+
+    @McpTool(path = "/checkin_program", method = "POST",
+        description = "Save and check in a program through its open shared-project DomainFile. Requires a non-empty comment, refuses stale checkouts and empty versions by default, supports version/checkout compare-and-set guards and dry-run, and verifies the new repository version plus checkout state.",
+        category = "project")
     public Response checkinProgram(
-            @Param(value = "path", source = ParamSource.BODY, description = "Project path of the file (e.g. '/scratch/writetest'); empty uses the current program") String path,
-            @Param(value = "comment", source = ParamSource.BODY, description = "Checkin comment") String comment,
-            @Param(value = "keep_checked_out", source = ParamSource.BODY, defaultValue = "false", description = "Keep the file checked out after the new version lands") boolean keepCheckedOut) {
+            @Param(value = "path", source = ParamSource.BODY, defaultValue = "",
+                description = "Project path; empty uses the current program") String path,
+            @Param(value = "comment", source = ParamSource.BODY,
+                description = "Required non-empty check-in comment") String comment,
+            @Param(value = "keep_checked_out", source = ParamSource.BODY,
+                defaultValue = "true",
+                description = "Keep the file checked out after the new version lands")
+            boolean keepCheckedOut,
+            @Param(value = "allow_no_changes", source = ParamSource.BODY,
+                defaultValue = "false",
+                description = "Allow a deliberate empty repository version")
+            boolean allowNoChanges,
+            @Param(value = "expected_version", source = ParamSource.BODY,
+                defaultValue = "-1",
+                description = "Optional local version guard; -1 disables it")
+            int expectedVersion,
+            @Param(value = "expected_latest_version", source = ParamSource.BODY,
+                defaultValue = "-1",
+                description = "Optional repository latest-version guard; -1 disables it")
+            int expectedLatestVersion,
+            @Param(value = "expected_checkout_id", source = ParamSource.BODY,
+                defaultValue = "-1",
+                description = "Optional local checkout-id guard; -1 disables it")
+            long expectedCheckoutId,
+            @Param(value = "dry_run", source = ParamSource.BODY,
+                defaultValue = "false",
+                description = "Validate without saving or checking in") boolean dryRun) {
         if (!programProvider.hasProject()) {
             return Response.err("No project open. Call /open_project first.");
         }
-        Map<String, Object> res = programProvider.checkinProgram(path, comment, keepCheckedOut);
+        Map<String, Object> res = programProvider.checkinProgram(
+            path, comment, keepCheckedOut, allowNoChanges, expectedVersion,
+            expectedLatestVersion, expectedCheckoutId, dryRun);
         return Response.ok(res);
     }
 
-    @McpTool(path = "/project_file_status", description = "Read-only lifecycle preflight for a DomainFile in the open project. Reports local/latest versions, checkout owner/id/version, dirty/busy state, can_checkout/can_checkin/can_merge, explicit blockers, and the next safe action. Use this before checkout, editing, merge, save, or check-in; repository browsing alone cannot report local project-file state.", category = "project")
+    @McpTool(path = "/project_file_status", description = "Read-only lifecycle preflight for a DomainFile in the open project. Reports local/latest versions and deltas, this checkout plus all active server checkouts, dirty/busy state, can_checkout/can_checkin/can_merge, explicit blockers, and the next safe action. Use this before checkout, editing, merge, save, or check-in; repository browsing alone cannot report local project-file state.", category = "project")
     public Response getProjectFileStatus(
             @Param(value = "path", description = "Project DomainFile path (for example '/BlackOps.exe'); empty uses the current program", defaultValue = "") String path) {
         return Response.ok(programProvider.getProjectFileLifecycleStatus(path));

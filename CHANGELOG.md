@@ -73,6 +73,19 @@ Complete version history for the Ghidra MCP Server project.
 
 ### Added
 
+- **Guarded shared-project checkout and check-in.** `checkout_program` is a new
+  GUI/headless MCP tool, and the existing headless `checkin_program` is now
+  available with the same contract in GUI mode. Both accept dry-run and
+  compare-and-set version guards. Check-in requires a comment, saves pending
+  database changes, refuses stale checkouts and accidental empty versions,
+  rechecks the server version after saving, and verifies the resulting version
+  bump/latest/checkout state. `project_file_status` now also reports local and
+  checkout version deltas, `checkout_is_latest`, and every active server
+  checkout (including another computer's user/host/id); the legacy GUI
+  `/server/version_control/*` routes reuse the guarded implementation. Merge
+  conflicts remain an explicit manual-review boundary instead of being
+  auto-resolved. Tool count 275 → 276.
+
 - **Existing-install update runbook.** Added `docs/UPDATING.md` with the
   supported source/preflight/test/build/deploy workflow, shared-project safety
   boundary, Java-extension versus Python-bridge distinction, MCP-client restart

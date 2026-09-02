@@ -71,6 +71,7 @@ import com.xebyte.core.NamingPolicy;
 import com.xebyte.core.Param;
 import com.xebyte.core.ParamSource;
 import com.xebyte.core.ProjectFileLifecycle;
+import com.xebyte.core.ProjectFileVersionControl;
 import com.xebyte.core.Response;
 import com.xebyte.core.ServerManager;
 
@@ -963,7 +964,9 @@ public class GhidraMCPPlugin extends Plugin implements ApplicationLevelPlugin {
             Map<String, Object> params = parseJsonParams(exchange);
             String filePath = params.get("path") != null ? params.get("path").toString() : null;
             String comment = params.getOrDefault("comment", "Checked in via GhidraMCP").toString();
-            boolean keepCheckedOut = Boolean.parseBoolean(params.getOrDefault("keepCheckedOut", "false").toString());
+            Object keepValue = params.containsKey("keep_checked_out")
+                ? params.get("keep_checked_out") : params.getOrDefault("keepCheckedOut", "true");
+            boolean keepCheckedOut = Boolean.parseBoolean(keepValue.toString());
             sendResponse(exchange, checkinProjectFile(filePath, comment, keepCheckedOut));
         }));
 
@@ -3681,7 +3684,7 @@ public class GhidraMCPPlugin extends Plugin implements ApplicationLevelPlugin {
     }
 
     @McpTool(path = "/project_file_status",
-        description = "Read-only lifecycle preflight for a DomainFile in the open project. Reports local/latest versions, checkout owner/id/version, dirty/busy state, can_checkout/can_checkin/can_merge, explicit blockers, and the next safe action. Use this before checkout, editing, merge, save, or check-in.",
+        description = "Read-only lifecycle preflight for a DomainFile in the open project. Reports local/latest versions and deltas, this checkout plus all active server checkouts, dirty/busy state, can_checkout/can_checkin/can_merge, explicit blockers, and the next safe action. Use this before checkout, editing, merge, save, or check-in.",
         category = "project")
     private Response projectFileStatus(
             @Param(value = "path", source = ParamSource.QUERY, defaultValue = "",
@@ -3709,23 +3712,117 @@ public class GhidraMCPPlugin extends Plugin implements ApplicationLevelPlugin {
         return JsonHelper.toJson(status);
     }
 
+    @McpTool(path = "/checkout_program", method = "POST",
+        description = "Guarded checkout for a DomainFile in the open project. Uses the current program when path is omitted, refuses a stale local version, supports an expected-latest-version compare-and-set guard and dry-run, and returns verified post-operation lifecycle state.",
+        category = "project")
+    private Response checkoutProgram(
+            @Param(value = "path", source = ParamSource.BODY, defaultValue = "",
+                description = "Project path. Omit to use the current program's DomainFile.")
+            String filePath,
+            @Param(value = "exclusive", source = ParamSource.BODY, defaultValue = "true",
+                description = "Request an exclusive checkout.")
+            boolean exclusive,
+            @Param(value = "expected_latest_version", source = ParamSource.BODY,
+                defaultValue = "-1",
+                description = "Optional compare-and-set guard for the repository latest version; -1 disables it.")
+            int expectedLatestVersion,
+            @Param(value = "dry_run", source = ParamSource.BODY, defaultValue = "false",
+                description = "Validate every precondition without acquiring a checkout.")
+            boolean dryRun) {
+        DomainFile file = resolveProjectFile(filePath);
+        if (file == null) {
+            return Response.err(projectFileResolutionError(filePath));
+        }
+        return Response.ok(ProjectFileVersionControl.checkout(
+            file, exclusive, expectedLatestVersion, dryRun, new ConsoleTaskMonitor()));
+    }
+
+    @McpTool(path = "/checkin_program", method = "POST",
+        description = "Save and check in a checked-out program through its open-project DomainFile. Requires a non-empty comment, refuses stale checkouts and empty versions by default, supports version/checkout compare-and-set guards and dry-run, and verifies the new repository version plus checkout state. keep_checked_out=true is required while the file remains open.",
+        category = "project")
+    private Response checkinProgram(
+            @Param(value = "path", source = ParamSource.BODY, defaultValue = "",
+                description = "Project path. Omit to use the current program's DomainFile.")
+            String filePath,
+            @Param(value = "comment", source = ParamSource.BODY,
+                description = "Required non-empty repository check-in comment.")
+            String comment,
+            @Param(value = "keep_checked_out", source = ParamSource.BODY,
+                defaultValue = "true",
+                description = "Keep the file checked out after check-in. Must be true while the file is open.")
+            boolean keepCheckedOut,
+            @Param(value = "allow_no_changes", source = ParamSource.BODY,
+                defaultValue = "false",
+                description = "Allow a deliberate empty repository version. False refuses accidental repeated check-ins.")
+            boolean allowNoChanges,
+            @Param(value = "expected_version", source = ParamSource.BODY,
+                defaultValue = "-1",
+                description = "Optional compare-and-set guard for the local project-file version; -1 disables it.")
+            int expectedVersion,
+            @Param(value = "expected_latest_version", source = ParamSource.BODY,
+                defaultValue = "-1",
+                description = "Optional compare-and-set guard for the repository latest version; -1 disables it.")
+            int expectedLatestVersion,
+            @Param(value = "expected_checkout_id", source = ParamSource.BODY,
+                defaultValue = "-1",
+                description = "Optional compare-and-set guard for this local checkout id; -1 disables it.")
+            long expectedCheckoutId,
+            @Param(value = "dry_run", source = ParamSource.BODY, defaultValue = "false",
+                description = "Validate every precondition and report whether a save is needed without changing state.")
+            boolean dryRun) {
+        DomainFile file = resolveProjectFile(filePath);
+        if (file == null) {
+            return Response.err(projectFileResolutionError(filePath));
+        }
+        return Response.ok(ProjectFileVersionControl.checkin(
+            file, comment, keepCheckedOut, allowNoChanges, expectedVersion,
+            expectedLatestVersion, expectedCheckoutId, dryRun,
+            new ConsoleTaskMonitor(), this::saveProjectFileOnEdt));
+    }
+
+    private DomainFile resolveProjectFile(String filePath) {
+        Project project = tool.getProject();
+        if (project == null) return null;
+        if (filePath == null || filePath.trim().isEmpty()) {
+            Program current = programProvider.getCurrentProgram();
+            return current != null ? current.getDomainFile() : null;
+        }
+        return project.getProjectData().getFile(filePath.trim());
+    }
+
+    private String projectFileResolutionError(String filePath) {
+        if (tool.getProject() == null) return "No project open";
+        if (filePath == null || filePath.trim().isEmpty()) {
+            return "No current program open; supply 'path'";
+        }
+        return "File not found: " + filePath.trim();
+    }
+
+    private void saveProjectFileOnEdt(DomainFile file, String comment,
+            TaskMonitor monitor) throws Exception {
+        if (SwingUtilities.isEventDispatchThread()) {
+            file.save(monitor);
+            return;
+        }
+        AtomicReference<Exception> error = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                file.save(monitor);
+            } catch (Exception e) {
+                error.set(e);
+            }
+        });
+        if (error.get() != null) throw error.get();
+    }
+
     private String checkoutProjectFile(String filePath, boolean exclusive) {
         Project project = tool.getProject();
         if (project == null) return "{\"error\": \"No project open\"}";
         if (filePath == null) return "{\"error\": \"'path' parameter required\"}";
         DomainFile file = project.getProjectData().getFile(filePath);
         if (file == null) return "{\"error\": \"File not found: " + escapeJson(filePath) + "\"}";
-        try {
-            boolean success = file.checkout(exclusive, new ConsoleTaskMonitor());
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("status", success ? "checked_out" : "checkout_failed");
-            result.put("path", filePath);
-            result.put("exclusive", exclusive);
-            result.put("file_status", ProjectFileLifecycle.inspect(file));
-            return JsonHelper.toJson(result);
-        } catch (Exception e) {
-            return "{\"error\": \"Checkout failed: " + escapeJson(e.getMessage()) + "\"}";
-        }
+        return JsonHelper.toJson(ProjectFileVersionControl.checkout(
+            file, exclusive, -1, false, new ConsoleTaskMonitor()));
     }
 
     private String checkinProjectFile(String filePath, String comment, boolean keepCheckedOut) {
@@ -3734,23 +3831,9 @@ public class GhidraMCPPlugin extends Plugin implements ApplicationLevelPlugin {
         if (filePath == null) return "{\"error\": \"'path' parameter required\"}";
         DomainFile file = project.getProjectData().getFile(filePath);
         if (file == null) return "{\"error\": \"File not found: " + escapeJson(filePath) + "\"}";
-        if (!file.isCheckedOut()) return "{\"error\": \"File is not checked out: " + escapeJson(filePath) + "\"}";
-        try {
-            file.checkin(new ghidra.framework.data.CheckinHandler() {
-                public boolean keepCheckedOut() { return keepCheckedOut; }
-                public String getComment() { return comment; }
-                public boolean createKeepFile() { return false; }
-            }, new ConsoleTaskMonitor());
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("status", "checked_in");
-            result.put("path", filePath);
-            result.put("comment", comment);
-            result.put("keep_checked_out", keepCheckedOut);
-            result.put("file_status", ProjectFileLifecycle.inspect(file));
-            return JsonHelper.toJson(result);
-        } catch (Exception e) {
-            return "{\"error\": \"Checkin failed: " + escapeJson(e.getMessage()) + "\"}";
-        }
+        return JsonHelper.toJson(ProjectFileVersionControl.checkin(
+            file, comment, keepCheckedOut, false, -1, -1, -1L, false,
+            new ConsoleTaskMonitor(), this::saveProjectFileOnEdt));
     }
 
     private String undoCheckoutProjectFile(String filePath, boolean keep) {
